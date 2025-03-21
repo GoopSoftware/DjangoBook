@@ -5,9 +5,15 @@ from django.shortcuts import render, get_object_or_404
 from django.http import Http404
 from django.core.mail import send_mail
 from django.db.models import Count
+from django.contrib.postgres.search import (
+    SearchVector,
+    SearchQuery,
+    SearchRank,
+    TrigramSimilarity
+)
 from taggit.models import Tag
 from .models import Post
-from .forms import EmailPostForm, CommentForm
+from .forms import EmailPostForm, CommentForm, SearchForm
 
 
 class PostListView(ListView):
@@ -150,5 +156,40 @@ def post_comment(request, post_id):
             'post': post,
             'form': form,
             'comment': comment
+        }
+    )
+
+def post_search(request):
+    form = SearchForm()
+    query = None
+    results = []
+
+    if 'query' in request.GET:
+        form = SearchForm(request.GET)
+        if form.is_valid():
+            query = form.cleaned_data['query']
+            search_vector = (
+                  SearchVector('title', weight='A')
+                + SearchVector('body', weight='B')
+            )
+            search_query = SearchQuery(query)
+            results = (
+                Post.published.annotate(
+                    similarity=TrigramSimilarity('title', query),
+                )
+                .filter(similarity__gt=0.05)
+                .order_by('-similarity')
+                )
+            for result in results:
+                print(result.title, result.similarity)
+
+
+    return render(
+        request,
+        'blog/post/search.html',
+{
+            'form': form,
+            'query': query,
+            'results': results
         }
     )
